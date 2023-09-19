@@ -16,10 +16,17 @@ public class PlayerInput : MonoBehaviour, IInputNetwork
     private NetworkInput _inputs;
     private LocalInputs _localInputs;
 
+    private void Awake()
+    {
+        _inputs = new NetworkInput();
+        _inputs.Init(5);
+    }
+
     private void Update()
     {
+        CheckForCursorLock();
         //Set Input Tick
-        _inputs.tick = NetworkManager.instance.timeManager.ClientTick;
+
         MovementsInputs();
         JumpInputs();
         leftClickInputs();
@@ -27,9 +34,12 @@ public class PlayerInput : MonoBehaviour, IInputNetwork
     public LocalInputs GetLocalInputs() { return _localInputs; }
 
     #region Interface
-    public void OnInput()
+    public void OnInput(NetworkInput inputPayload, int tick)
     {
-        ClientSend.SendInputData(_inputs);
+        inputPayload.tick = tick;
+        inputPayload.forward = transform.forward;
+        inputPayload.right = transform.right;
+        ClientSend.SendInputData(inputPayload);
     }
     public void OnInput(NetworkInput input)
     {
@@ -41,19 +51,21 @@ public class PlayerInput : MonoBehaviour, IInputNetwork
     #region InputsHandling
     private void MovementsInputs()
     {
-        _inputs.horizontal = Input.GetAxis("Horizontal");
-        _inputs.vertical = Input.GetAxis("Vertical");
+        _inputs.movements[0] = Input.GetKey(KeyCode.W);
+        _inputs.movements[1] = Input.GetKey(KeyCode.S);
+        _inputs.movements[2] = Input.GetKey(KeyCode.A);
+        _inputs.movements[3] = Input.GetKey(KeyCode.D);
     }
     private void JumpInputs()
     {
         if (Input.GetKeyDown(KeyCode.Space))
         {
-            _inputs.jump = true;
+            _inputs.movements[4] = true;
         }
         else
         if (Input.GetKeyUp(KeyCode.Space))
         {
-            _inputs.jump = false;
+            _inputs.movements[4] = false;
         }
     }
     private void leftClickInputs()
@@ -66,6 +78,22 @@ public class PlayerInput : MonoBehaviour, IInputNetwork
               if (Input.GetMouseButtonUp(0))
         {
             _localInputs.leftMouseClick = false;
+        }
+    }
+    private void CheckForCursorLock()
+    {
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            if(Cursor.lockState == CursorLockMode.Locked)
+            {
+                Cursor.lockState = CursorLockMode.Confined;
+                Cursor.visible = true;
+            }
+            else
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
         }
     }
     #endregion InputsHandling

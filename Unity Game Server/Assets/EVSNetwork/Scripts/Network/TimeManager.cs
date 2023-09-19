@@ -6,50 +6,58 @@ using UnityEngine;
 
 public class TimeManager : MonoBehaviour
 {
-    [SerializeField] private  float SERVER_TICK_RATE = 60f;
+    public const int TICK_RATE = 64;
 
-    public int ServerTick;
-
+    [SerializeField] private int _currentTick;
+    private float _minTimeBetweenTicks;
+    private float _timer;
+    private float _clientTime;
     /// <summary>
     /// On Tick is Processed return The currentTick
     /// </summary>
     public static Action<int> OnTick;
 
-    private float _timer;
-    private int _currentTick;
-    private float _minTimeBetweenTicks;
 
-
-
-    public float deltaTick { get { return _minTimeBetweenTicks; } }
-    public int GetTick() { return _currentTick; }
+    public int currentTick { get { return _currentTick; } }
+    public float delta { get { return _minTimeBetweenTicks; } }
+    public float clientTime { get { return _clientTime; } }
 
     private void Awake()
     {
-        _minTimeBetweenTicks = 1f / SERVER_TICK_RATE;
+        //   Application.targetFrameRate = 60; // Limit to 60 FPS for example
+        _minTimeBetweenTicks = 1f / TICK_RATE;
     }
 
-    // Update is called once per frame
     void Update()
     {
+        _clientTime += Time.time;
         _timer += Time.deltaTime;
 
         while (_timer >= _minTimeBetweenTicks)
         {
             _timer -= _minTimeBetweenTicks;
-            HandleTick();
-            _currentTick++;
-
-            ServerTick = _currentTick;
+            Tick();
+            AdvanceTick();
         }
     }
 
-    private void HandleTick()
+    public void Tick()
     {
         OnTick?.Invoke(_currentTick);
 
-        ServerSend.SendServerTick(_currentTick);
+        if (_currentTick % 3 == 0)
+            ServerSend.SendServerTick(_currentTick);
     }
 
+    private void AdvanceTick()
+    {
+        if(_currentTick == 32767)
+        {
+            _currentTick = 0;
+            return;
+        }
+
+        _currentTick++;
+    }
 
 }

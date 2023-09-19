@@ -6,59 +6,73 @@ using UnityEngine;
 
 public class TimeManager : MonoBehaviour
 {
-    [SerializeField] private float SERVER_TICK_RATE = 60f;
+    public const int TICK_RATE = 64;
 
-    public int ClientTick;
-    public int ServerTick;
+    [SerializeField]private int _currentTick;
+    private float _minTimeBetweenTicks;
+    private float _timer;
+    private float _clientTime;
+    private float _ping;
 
     /// <summary>
     /// On Tick is Processed return The currentTick
     /// </summary>
     public static Action<int> OnTick;
 
-    private float _timer;
-    private int _currentTick;
-    private float _minTimeBetweenTicks;
-
-    private float tickDrift = 0; // The difference between the server and client ticks
-    private float tickAdjustSpeed = 0.01f; // Speed at which to adjust tick drift
-
-    public float deltaTick { get { return _minTimeBetweenTicks; } }
-    public int GetTick() { return _currentTick; }
+    public int currentTick { get { return _currentTick; } }
+    public float delta { get { return _minTimeBetweenTicks; } }
+    public float clientTime { get { return _clientTime; } }
+    public float ping { get { return _ping; } }
 
     private void Awake()
     {
-        _minTimeBetweenTicks = 1f / SERVER_TICK_RATE;
+        //  Application.targetFrameRate = 60; // Limit to 60 FPS for example
+        _minTimeBetweenTicks = 1f / TICK_RATE;
     }
 
-    // Update is called once per frame
     void Update()
     {
+        _clientTime += Time.time;
         _timer += Time.deltaTime;
-
-        // Calculate tick drift
-        tickDrift = ServerTick - _currentTick;
-
-        // Gradually adjust local tick to match server
-        _currentTick += Mathf.RoundToInt(tickDrift * tickAdjustSpeed);
 
         while (_timer >= _minTimeBetweenTicks)
         {
             _timer -= _minTimeBetweenTicks;
-            HandleTick();
-            _currentTick++;
-
-            ClientTick = _currentTick;
+            Tick();
+            AdvanceTick();
         }
     }
 
-    private void HandleTick()
+    public void Tick()
     {
         OnTick?.Invoke(_currentTick);
     }
 
+
     public void SetTick(int tick)
     {
-        ServerTick = tick;
+        if (_currentTick < tick || _currentTick > tick)
+            _currentTick = tick;
+    }
+
+    private void AdvanceTick()
+    {
+        if (_currentTick == 32767)
+        {
+            _currentTick = 0;
+            return;
+        }
+
+        _currentTick++;
+    }
+
+    public void SetPing(float time)
+    {
+        _ping = (Time.time - time) * 1000;  // Convert to milliseconds if your time is in seconds
+    }
+
+    public void SetClientTime(float time)
+    {
+        _clientTime = time;
     }
 }

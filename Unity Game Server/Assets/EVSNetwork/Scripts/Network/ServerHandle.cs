@@ -23,36 +23,23 @@ namespace GameServer
 
             Server.clientsList[fromClient].SendPlayerIntoGame(userName);
         }
+        public static void PingRecieved(int fromClient, Packet packet)
+        {
+            float timefromClient = packet.ReadFloat();
+
+            ServerSend.SendPong(fromClient, timefromClient);
+        }
         public static void HandleInputs(int fromClient, Packet packet)
         {
-            object inputObject = new NetworkInput();
-            // Iterate through each field in the struct
-            foreach (var field in inputObject.GetType().GetFields())
+            NetworkInput extractedInput = new NetworkInput();
+            extractedInput.tick = packet.ReadInt();
+            extractedInput.forward = packet.ReadVector3();
+            extractedInput.right = packet.ReadVector3();
+            extractedInput.movements = new bool[packet.ReadInt()];
+            for (int i = 0; i < extractedInput.movements.Length; i++)
             {
-                string fieldName = field.Name;
-                object fieldValue = field.GetValue(inputObject);
-
-                // Based on the type of the field, process the value accordingly
-                if (field.FieldType == typeof(int))
-                {
-                    int intValue = packet.ReadInt();
-                    field.SetValue(inputObject, intValue);
-                }
-                else if (field.FieldType == typeof(float))
-                {
-                    float floatValue = packet.ReadFloat();
-                    field.SetValue(inputObject,floatValue);
-                }
-                else if (field.FieldType == typeof(bool))
-                {
-                    bool boolValue = packet.ReadBool();
-                    field.SetValue(inputObject, boolValue);
-                }
-                // ... other types here If Needed
+                extractedInput.movements[i] = packet.ReadBool();
             }
-
-            NetworkInput extractedInput = (NetworkInput)inputObject;
-         
             Server.clientsList[fromClient].networkedClient.OnInput(extractedInput);
         }
         public static void PlayerRotation(int fromClient, Packet packet)
@@ -62,14 +49,16 @@ namespace GameServer
         }
         public static void PlayerShoot(int fromClient, Packet packet)
         {
-            Vector3 origin = packet.ReadVector3();
-            Vector3 direction = packet.ReadVector3();
+            ShootPayload shootPayload = new ShootPayload()
+            {
+                tick = packet.ReadInt(),
+                origine = packet.ReadVector3(),
+                direction = packet.ReadVector3(),
+                time = packet.ReadFloat(),
+            };
 
-            Ray ray = new Ray();
-            ray.origin = origin;
-            ray.direction = direction;
-
-            Server.clientsList[fromClient].networkedClient.SendCommandShoot(ray);
+            Debug.Log($"Recieved A Shoot Command From {fromClient}, at Tick {shootPayload.tick}");
+            Server.clientsList[fromClient].networkedClient.SendCommandShoot(shootPayload);
         }
     }
 }

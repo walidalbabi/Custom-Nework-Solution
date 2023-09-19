@@ -6,6 +6,12 @@ public class PlayerNetworkInputs : MonoBehaviour, IInputNetwork
 {
     private NetworkInput _inputs;
     public Queue<NetworkInput> inputsQueue = new Queue<NetworkInput>();
+
+    private void Awake()
+    {
+        _inputs.Init(5);
+    }
+
     #region Interface
     public void OnInput()
     {
@@ -15,7 +21,7 @@ public class PlayerNetworkInputs : MonoBehaviour, IInputNetwork
     {
         if (!_inputs.Equals(input))
         {
-            if (input.tick < _inputs.tick) return;
+            //if (input.tick < _inputs.tick) return;
             this._inputs = input;
             inputsQueue.Enqueue(input);
         }

@@ -15,6 +15,7 @@ public class Client : MonoBehaviour
     public string ip = "127.0.0.1";
     public int port = 5555;
     public int myID = 0;
+    public string myUserName = "Username";
     public TCP tcp;
     public UDP udp;
 
@@ -30,10 +31,9 @@ public class Client : MonoBehaviour
     }
     private void Start()
     {
-        tcp = new TCP();
-        udp = new UDP();
 
-        ConnectToServer();
+
+      //  ConnectToServer();
     }
     private void OnApplicationQuit()
     {
@@ -41,11 +41,21 @@ public class Client : MonoBehaviour
     }
     public void ConnectToServer()
     {
+        tcp = new TCP();
+        udp = new UDP();
         InitializeClientData();
         _isConnected = true;
         tcp.Connect();
     }
 
+    public void SetIPAddress(string ip)
+    {
+        this.ip = ip;
+    }
+    public void SetUsername(string username)
+    {
+        this.myUserName = username;
+    }
     #region Protocols
     public class TCP
     {
@@ -275,14 +285,16 @@ public class Client : MonoBehaviour
         _packetHandlers = new Dictionary<int, PacketHandler>()
             {
                 {(int)ServerPackets.welcome, ClientHandle.Welcome },
+                {(int)ServerPackets.ping, ClientHandle.PongRecieved },
                 {(int)ServerPackets.spawnPlayer, ClientHandle.SpawnPlayer },
                 {(int)ServerPackets.serverTick, ClientHandle.SetServerTick },
                 {(int)ServerPackets.objectPosition, ClientHandle.ObjectPosition },
                 {(int)ServerPackets.objectRotation, ClientHandle.ObjectRotation },
                 {(int)ServerPackets.playerDisconnect, ClientHandle.PlayerDisconnect },
+                {(int)ServerPackets.worldSnapshots, ClientHandle.WorldSnapsots },
                 {(int)ServerPackets.statePayload, ClientHandle.SetPlayerStatePayload },
-                {(int)ServerPackets.playerHealth, ClientHandle.PlayerHealth },
-                {(int)ServerPackets.playerRespawned, ClientHandle.PlayerSpawned },
+                {(int)ServerPackets.entityHealth, ClientHandle.EntityHealth },
+                {(int)ServerPackets.entityRespawned, ClientHandle.EntitySpawned },
 
             };
         Debug.Log($"Client: Initialize Packet");

@@ -6,9 +6,15 @@ using UnityEngine;
 public struct NetworkInput
 {
     public int tick;
-    public float horizontal;
-    public float vertical;
-    public bool jump;
+    public Vector3 forward;
+    public Vector3 right;
+    public bool[] movements;
+
+
+    public void Init(int movementsBtns)
+    {
+        movements = new bool[movementsBtns];
+    }
 }
 
 public interface IInputNetwork

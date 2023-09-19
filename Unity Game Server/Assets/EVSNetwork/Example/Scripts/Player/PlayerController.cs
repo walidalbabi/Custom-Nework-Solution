@@ -12,7 +12,15 @@ public struct StatePayload
 {
     public int tick;
     public Vector3 position;
-    public Vector3 velovity;
+    public Vector3 velocity;
+}
+
+public struct ShootPayload
+{
+    public int tick;
+    public Vector3 origine;
+    public Vector3 direction;
+    public float time;
 }
 
 public class PlayerController : NetworkBehaviour
@@ -21,24 +29,18 @@ public class PlayerController : NetworkBehaviour
     public float gravity = -9.81f;
     public float moveSpeed = 5f;
     public float jumpSpeed = 5f;
-    public float maxHealth = 100f;
+
 
     private float _yVelocity = 0f;
-    private float _health;
-
-    private NetworkInput _inputs;
-
 
     private CharacterController _characterController;
     private PlayerNetworkInputs _playerNetworkInputs;
 
-    //Client Prediction
+    //Prediction
+    private const int BUFFER_SIZE = 1024;
     private StatePayload[] _stateBuffer;
-    private int BUFFER_LENGHT = 1024;
-    private int _bufferIndex = 0;
-
-    public float health { get { return _health; } }
-
+    private const int INPUT_BUFFER_SIZE = 1; // Stores the last 10 input packages
+    private List<NetworkInput> _inputBuffer = new List<NetworkInput>();
 
     protected override void Awake()
     {
@@ -49,7 +51,7 @@ public class PlayerController : NetworkBehaviour
         _characterController = GetComponent<CharacterController>();
         _playerNetworkInputs = GetComponent<PlayerNetworkInputs>();
 
-        _stateBuffer = new StatePayload[BUFFER_LENGHT];
+        _stateBuffer = new StatePayload[BUFFER_SIZE];
     }
 
     protected override void OnDestroy()
@@ -60,45 +62,67 @@ public class PlayerController : NetworkBehaviour
 
     private void Start()
     {
-        gravity *= NetworkManager.instance.timeManager.deltaTick * NetworkManager.instance.timeManager.deltaTick;
-        moveSpeed *= NetworkManager.instance.timeManager.deltaTick;
-        jumpSpeed *= NetworkManager.instance.timeManager.deltaTick;
-    }
-
-    public void Initialize(int id, string usrName)
-    {
-        _health = maxHealth;
+        float deltaTime = NetworkManager.instance.timeManager.delta;
+        gravity *= deltaTime * deltaTime;
+        moveSpeed *= deltaTime;
+        jumpSpeed *= deltaTime;
     }
 
     private void OnTick(int tick)
     {
-        //if (_health <= 0f)
-        //{
-        //    return;
-        //}
-        Physics.Simulate(NetworkManager.instance.timeManager.deltaTick);
+        // 1. Add incoming inputs to the buffer
+        while (_playerNetworkInputs.inputsQueue.Count > 0)
+        {
+            NetworkInput inputPayload = _playerNetworkInputs.inputsQueue.Dequeue();
+            _inputBuffer.Add(inputPayload);
+        }
 
-        //if (_playerNetworkInputs.inputsQueue.Count > 0)
-        //    _inputs = _playerNetworkInputs.inputsQueue.Dequeue();
-
-        _inputs = _playerNetworkInputs.GetNetworkInputs();
-
-        //Setting State Payload
-        _bufferIndex = _inputs.tick % BUFFER_LENGHT;
-        _stateBuffer[_bufferIndex] = Move(_inputs);
-
-        //Sending Payload to the owner client to check of wrong simulation
-        ServerSend.SendStatePayload(id, _stateBuffer[_bufferIndex], this.GetType());
+        // 2. Process the buffered inputs when they reach the buffer size
+        if (_inputBuffer.Count >= INPUT_BUFFER_SIZE)
+        {
+            ProcessBufferedInputs(tick);
+        }
     }
-    private StatePayload Move(NetworkInput input)
+
+    private void ProcessBufferedInputs(int tick)
     {
-        Vector3 moveDirection = transform.right * input.horizontal + transform.forward * input.vertical;
+        int lastBufferIndex = -1;
+
+        foreach (var input in _inputBuffer)
+        {
+            int bufferIndex = input.tick % BUFFER_SIZE;
+            StatePayload statePayload = ProcessMovements(input);
+            _stateBuffer[bufferIndex] = statePayload;
+            lastBufferIndex = bufferIndex;
+        }
+
+        // Clear the buffer once processed
+        _inputBuffer.Clear();
+
+        if (lastBufferIndex != -1)
+        {
+            //Sending Payload to the owner client to check for wrong simulation
+            ServerSend.SendStatePayload(id, _stateBuffer[lastBufferIndex], this.GetType());
+        }
+    }
+    private StatePayload ProcessMovements(NetworkInput input)
+    {
+        Vector2 movementsInputs = Vector2.zero;
+
+        if (input.movements[0]) movementsInputs.y += 1;
+        if (input.movements[1]) movementsInputs.y -= 1;
+        if (input.movements[2]) movementsInputs.x += 1;
+        if (input.movements[3]) movementsInputs.x -= 1;
+
+        Debug.Log($"CLIENT:  {movementsInputs} on tick {input.tick}");
+
+        Vector3 moveDirection = input.right * -movementsInputs.x + input.forward * movementsInputs.y;
         moveDirection *= moveSpeed;
 
         if (_characterController.isGrounded)
         {
             _yVelocity = 0f;
-            if (input.jump)
+            if (input.movements[4])
             {
                 _yVelocity = jumpSpeed;
             }
@@ -109,61 +133,36 @@ public class PlayerController : NetworkBehaviour
 
         _characterController.Move(moveDirection);
 
-        return SetStatePayload(input.tick);
-    }
-    private StatePayload SetStatePayload(int tick)
-    {
-        StatePayload state = new StatePayload
+        return new StatePayload
         {
+            tick = input.tick,
             position = transform.position,
-            velovity = _characterController.velocity,
-            tick = tick
+         //   velocity = velocity,
         };
-        return state;
     }
-    public void Shoot(Ray ray)
+
+    public void Shoot(ShootPayload shootPayload)
     {
-        Debug.DrawRay(ray.origin, ray.direction * 100f, Color.red, 5f);
+        Debug.DrawRay(shootPayload.origine, shootPayload.direction * 100f, Color.red, 5f);
+        //RollBack
+        // Calculate the time taken for the packet to travel from client to server
+        float halfRTT = Time.time - shootPayload.time;
+        float rollbackDurationInSeconds = Time.time - halfRTT - 0.1f;
+
+        int rollbackTicks = Mathf.FloorToInt(rollbackDurationInSeconds / NetworkManager.instance.timeManager.delta);
+        RollbackManager.intance.DoRollbackAll(id, rollbackTicks);
+
+        //Raycast
         RaycastHit hit;
-        if (Physics.Raycast(ray, out hit, 100f))
+        if (Physics.Raycast(shootPayload.origine, shootPayload.direction, out hit, 100f))
         {
-            if (hit.collider.GetComponent<PlayerController>())
+            if (hit.collider.GetComponent<Hitbox>())
             {
-                hit.collider.GetComponent<PlayerController>().TakeDamage(50f);
+                hit.collider.GetComponent<Hitbox>().Damage(25f);
             }
         }
     }
 
-
-    public void TakeDamage(float damage)
-    {
-        if (_health <= 0f)
-        {
-            return;
-        }
-
-        _health -= damage;
-
-        if (_health <= 0f)
-        {
-            _health = 0f;
-            _characterController.enabled = false;
-            transform.position = new Vector3(0f, 25f, 0f);
-            StartCoroutine(Respawn());
-        }
-
-        ServerSend.PlayerHealth(this);
-    }
-
-    private IEnumerator Respawn()
-    {
-        yield return new WaitForSeconds(5f);
-
-        _health = maxHealth;
-        _characterController.enabled = true;
-
-        ServerSend.playerRespawned(this);
-    }
 
     protected override void OnNewObjectAdded(object obj)
     {

@@ -9,6 +9,7 @@ namespace GameServer
     public enum ServerPackets
     {
         welcome = 1,
+        ping,
         spawnNetworkObject,
         spawnPlayer,
         serverTick,
@@ -16,14 +17,16 @@ namespace GameServer
         objectRotation,
         playerDisconnect,
         statePayload,
-        playerHealth,
-        playerRespawned
+        worldSnapshots,
+        entityHealth,
+        entityRespawned
     }
 
     /// <summary>Sent from client to server.</summary>
     public enum ClientPackets
     {
         welcomeReceived = 1,
+        ping,
         inputs,
         rotation,
         playerShoot,

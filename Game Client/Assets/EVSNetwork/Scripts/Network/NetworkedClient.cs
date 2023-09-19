@@ -5,8 +5,7 @@ using UnityEngine;
 
 public class NetworkedClient : NetworkedObject
 {
-  
-
+ 
     protected override void Awake()
     {
         base.Awake();
@@ -16,7 +15,4 @@ public class NetworkedClient : NetworkedObject
     {
         base.Initialize(id, userName);
     }
-
-  
-
 }

@@ -12,9 +12,15 @@ public abstract class NetworkBehaviour : MonoBehaviour
     protected int id;
     protected string username;
 
+    public int ID { get { return id; } }
+    public string UserName { get { return username; } }
+
     protected virtual void Awake()
     {
         _networkObject = GetComponent<NetworkedObject>();
+
+        id = _networkObject.id;
+        username = _networkObject.userName;
 
         _networkObject.OnOwnerChange += OnOwnerChange;
         OnObjectAdded += OnNewObjectAdded;

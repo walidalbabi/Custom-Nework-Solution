@@ -39,7 +39,9 @@ public class NetworkedObject : MonoBehaviour
                 if (tp.GetType().Equals(type))
                 {
                     if (tp != null)
+                    {
                         tp.PassingObject(obj);
+                    }
                 }
             }
         }

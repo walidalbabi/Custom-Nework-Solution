@@ -23,35 +23,31 @@ public class ClientSend : MonoBehaviour
         using (Packet packet = new Packet((int)ClientPackets.welcomeReceived))
         {
             packet.Write(Client.instance.myID);
-            packet.Write("UserName");
+            packet.Write(Client.instance.myUserName);
 
             SendTCPData(packet);
         }
     }
+    public static void SendPing()
+    {
+        using (Packet packet = new Packet((int)ClientPackets.ping))
+        {
+            packet.Write(Time.time);
 
-
+            SendUDPData(packet);
+        }
+    }
     public static void SendInputData(NetworkInput inputs)
     {
         using (Packet packet = new Packet((int)ClientPackets.inputs))
         {
-            foreach (var field in typeof(NetworkInput).GetFields(BindingFlags.Instance |
-                                                  BindingFlags.NonPublic |
-                                                  BindingFlags.Public))
+            packet.Write(inputs.tick);
+            packet.Write(inputs.forward);
+            packet.Write(inputs.right);
+            packet.Write(inputs.movements.Length);
+            for (int i = 0; i < inputs.movements.Length; i++)
             {
-                object value = field.GetValue(inputs);
-                if (value is int)
-                {
-                    packet.Write((int)value);
-                }
-                else if (value is float)
-                {
-                    packet.Write((float)value);
-                }
-                else if (value is bool)
-                {
-                    packet.Write((bool)value);
-                }
-
+                packet.Write(inputs.movements[i]);
             }
             SendUDPData(packet);
         }
@@ -67,13 +63,14 @@ public class ClientSend : MonoBehaviour
         }
     }
 
-    public static void PlayerShoot(Ray ray)
+    public static void PlayerShoot(ShootPayload shootPayload)
     {
         using (Packet packet = new Packet((int)ClientPackets.playerShoot))
         {
-            packet.Write(ray.origin);
-            packet.Write(ray.direction);
-
+            packet.Write(shootPayload.tick);
+            packet.Write(shootPayload.origine);
+            packet.Write(shootPayload.direction);
+            packet.Write(shootPayload.time);
             SendTCPData(packet);
         }
     }

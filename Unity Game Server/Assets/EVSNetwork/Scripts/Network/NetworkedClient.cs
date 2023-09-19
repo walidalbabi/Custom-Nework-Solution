@@ -10,6 +10,7 @@ public class NetworkedClient : NetworkedObject
     private void Awake()
     {
         _inputNetwork = GetComponent<IInputNetwork>();
+        _playerController = GetComponent<PlayerController>();
     }
 
     public override void Initialize(int id, string userName)
@@ -20,8 +21,8 @@ public class NetworkedClient : NetworkedObject
     {
         _inputNetwork.OnInput(input);
     } 
-    public void SendCommandShoot(Ray ray)
+    public void SendCommandShoot(ShootPayload shootPayload)
     {
-        _playerController.Shoot(ray);
+        _playerController.Shoot(shootPayload);
     }
 }

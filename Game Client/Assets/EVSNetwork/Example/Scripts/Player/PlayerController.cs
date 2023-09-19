@@ -1,14 +1,20 @@
-using System;
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
+
 
 public struct StatePayload
 {
     public int tick;
     public Vector3 position;
-    public Vector3 velovity;
+    public Vector3 velocity;
 }
+public struct ShootPayload
+{
+    public int tick;
+    public Vector3 origine;
+    public Vector3 direction;
+    public float time;
+}
+
 
 public class PlayerController : NetworkBehaviour
 {
@@ -22,13 +28,17 @@ public class PlayerController : NetworkBehaviour
     private CharacterController _characterController;
     private PlayerInput _playerInput;
 
-    //Client Prediction
+    [SerializeField] private Transform _serverModel;
+    [SerializeField] private Interpolater _interpolator;
+    //Prediction
+    private const int BUFFER_SIZE = 1024;
+
     private StatePayload[] _stateBuffer;
     private NetworkInput[] _inputBuffer;
-    private StatePayload _lastServerStatePayload;
-    private StatePayload _lastProccessedStatePayload;
-    private int BUFFER_LENGHT = 1024;
-    private int _bufferIndex = 0;
+    private StatePayload latestServerState;
+    private StatePayload lastProcessedState;
+
+    NetworkInput inputPayload = new NetworkInput();
 
     //Reconciliation
     private int _tickToProcess;
@@ -42,8 +52,13 @@ public class PlayerController : NetworkBehaviour
         _characterController = GetComponent<CharacterController>();
         _playerInput = GetComponent<PlayerInput>();
 
-        _stateBuffer = new StatePayload[BUFFER_LENGHT];
-        _inputBuffer = new NetworkInput[BUFFER_LENGHT];
+        _stateBuffer = new StatePayload[BUFFER_SIZE];
+        _inputBuffer = new NetworkInput[BUFFER_SIZE];
+
+        for (int i = 0; i < _inputBuffer.Length; i++)
+        {
+            _inputBuffer[i].Init(5);
+        }
     }
 
     protected override void OnDestroy()
@@ -54,52 +69,80 @@ public class PlayerController : NetworkBehaviour
     }
     private void Start()
     {
-    
-        // float deltaTime = NetworkManager.instance.timeManager.deltaTick;
-        float deltaTime = Time.fixedDeltaTime;
+
+        float deltaTime = NetworkManager.instance.timeManager.delta;
         gravity *= deltaTime * deltaTime;
         moveSpeed *= deltaTime;
         jumpSpeed *= deltaTime;
     }
 
+    [SerializeField] private float gunRate = 0.2f;
+    private float shotTime;
+
     private void Update()
     {
-        CheckForPlayerShoot();       
+        shotTime += Time.deltaTime;
+        if (shotTime > gunRate)
+        {
+            CheckForPlayerShoot();
+        }
     }
 
     private void OnTick(int tick)
     {
-        // Physics.Simulate(NetworkManager.instance.timeManager.deltaTick);
-
         //Send the current rotation, because its being handled localy
         ClientSend.SendRotationData(transform.rotation);
 
-        //Check for Reconciliation
-        ClientReconciliation(tick);
+        if (tick % 3 == 0)
+            ClientSend.SendPing();
 
-        _bufferIndex = tick % BUFFER_LENGHT;
+        //Reconcilation
+        if (!latestServerState.Equals(default(StatePayload)) && (lastProcessedState.Equals(default(StatePayload)) ||
+            !latestServerState.Equals(lastProcessedState)))
+        {
+            HandleServerReconciliation(tick);
+        }
+        //Prediction
+        int bufferIndex = tick % BUFFER_SIZE;
 
-        _inputBuffer[_bufferIndex].horizontal = Input.GetAxis("Horizontal");
-        _inputBuffer[_bufferIndex].vertical = Input.GetAxis("Vertical");
-        _inputBuffer[_bufferIndex].jump = _playerInput.GetNetworkInputs().jump;
+        inputPayload.Init(5);
+        inputPayload = _playerInput.GetNetworkInputs();
+        inputPayload.tick = tick;
+        inputPayload.forward = transform.forward;
+        inputPayload.right = transform.right;
+        ClientSend.SendInputData(inputPayload);
 
-        //Setting State Payload
+        _inputBuffer[bufferIndex] = inputPayload;
+        _stateBuffer[bufferIndex] = ProcessMovements(inputPayload);
 
-        _stateBuffer[_bufferIndex] = Move(_inputBuffer[_bufferIndex], _inputBuffer[_bufferIndex].tick); ;
+        Interpolation interpolationState = new Interpolation {
+            tick = _stateBuffer[bufferIndex].tick,
+            position = _stateBuffer[bufferIndex].position,
+            rotation = transform.rotation,
+        };
 
-        //Send Player Inputs to Server
-        _playerInput.OnInput();
+        _interpolator.SetInterpolation(interpolationState);
     }
 
-    private StatePayload Move(NetworkInput input, int tick)
+    private StatePayload ProcessMovements(NetworkInput input)
     {
-        Vector3 moveDirection = transform.right * input.horizontal + transform.forward * input.vertical;
+
+        Vector2 movementsInputs = Vector2.zero;
+        if (input.movements[0]) movementsInputs.y += 1;
+        if (input.movements[1]) movementsInputs.y -= 1;
+        if (input.movements[2]) movementsInputs.x += 1;
+        if (input.movements[3]) movementsInputs.x -= 1;
+
+      //  Debug.Log($"CLIENT:  {movementsInputs} on tick {input.tick}");
+
+        Vector3 moveDirection = input.right * -movementsInputs.x + input.forward * movementsInputs.y;
         moveDirection *= moveSpeed;
 
         if (_characterController.isGrounded)
         {
             _yVelocity = 0f;
-            if (input.jump)
+
+            if (input.movements[4])
             {
                 _yVelocity = jumpSpeed;
             }
@@ -110,66 +153,83 @@ public class PlayerController : NetworkBehaviour
 
         _characterController.Move(moveDirection);
 
-        return SetStatePayload(tick);
+        return new StatePayload
+        {
+            tick = input.tick,
+            position = transform.position,
+            velocity = _characterController.velocity,
+        };
+
     }
 
-    [SerializeField]float lerpFactor = 0.1f;  // Adjust this value as needed for smoother results
-
-    private void ClientReconciliation(int currrentTick)
+    private void HandleServerReconciliation(int currentTick)
     {
-        if (_lastServerStatePayload.tick == _lastProccessedStatePayload.tick) return;
+        lastProcessedState = latestServerState;
 
-        _lastProccessedStatePayload = _lastServerStatePayload;
+        int serverStateBufferIndex = latestServerState.tick % BUFFER_SIZE;
+        float positionError = Vector3.Distance(latestServerState.position, _stateBuffer[serverStateBufferIndex].position);
 
-        int serverStateBufferIndex = _lastProccessedStatePayload.tick % BUFFER_LENGHT;
-        float distanceError = Vector3.Distance(_stateBuffer[serverStateBufferIndex].position, _lastProccessedStatePayload.position);
-
-        if (distanceError > 0.1f)
+        if (positionError > 0.05f)
         {
+            //    Debug.Log($"server tick {latestServerState.tick} Client tick {_stateBuffer[serverStateBufferIndex].tick} Distance Error = {positionError}");
+            Debug.Log($"server tick {latestServerState.tick} Client tick {_stateBuffer[serverStateBufferIndex].tick} Distance Error = {positionError}");
+            // Update buffer at index of latest server state
+            _stateBuffer[serverStateBufferIndex] = latestServerState;
+
             _characterController.enabled = false;
-            Vector3 correctedPosition = Vector3.Lerp(transform.position, _lastProccessedStatePayload.position, lerpFactor);
-            transform.position = _lastProccessedStatePayload.position;
+            transform.position = _stateBuffer[serverStateBufferIndex].position;
             _characterController.enabled = true;
 
-            _stateBuffer[serverStateBufferIndex] = _lastProccessedStatePayload;
+            // Now re-simulate the rest of the ticks up to the current tick on the client
+            int tickToProcess = latestServerState.tick + 1;
 
-            _tickToProcess = currrentTick - 1;
+            while (tickToProcess < currentTick)
+            {
+                int bufferIndex = tickToProcess % BUFFER_SIZE;
 
-            //// Re-simulate the wrong states until the current tick
-            //while (_tickToProcess < currrentTick)
-            //{
-            //    Debug.Log($"{_tickToProcess} {currrentTick}");
-            //    int buffIndex = _tickToProcess % BUFFER_LENGHT;
-            //    StatePayload statePayload = Move(_inputBuffer[buffIndex], _inputBuffer[buffIndex].tick);
-            //    _stateBuffer[buffIndex] = statePayload;
-            //    _tickToProcess++;
-            //}
+                // Process new movement with reconciled state
+                StatePayload statePayload = ProcessMovements(_inputBuffer[bufferIndex]);
+
+                // Update buffer with recalculated state
+                _stateBuffer[bufferIndex] = statePayload;
+
+                Interpolation interpolationState = new Interpolation
+                {
+                    tick = _stateBuffer[bufferIndex].tick,
+                    position = _stateBuffer[bufferIndex].position,
+                    rotation = transform.rotation,
+                };
+
+                //_interpolator.SetInterpolation(interpolationState);
+
+                tickToProcess++;
+            }
         }
-    }
 
-
-    private StatePayload SetStatePayload(int tick)
-    {
-        StatePayload state = new StatePayload
-        {
-            position = transform.position,
-            velovity = _characterController.velocity,
-            tick = tick
-        };
-        return state;
     }
 
     public void SetServerStatePayload(StatePayload payload)
     {
-        _lastServerStatePayload = payload;
+        if (payload.tick <= latestServerState.tick) return;
+
+        latestServerState = payload;
+        _serverModel.position = payload.position;
     }
+
 
     private void CheckForPlayerShoot()
     {
         if (_playerInput.GetLocalInputs().leftMouseClick)
         {
             Ray ray = Camera.main.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
-            ClientSend.PlayerShoot(ray);
+            ShootPayload shootPayload = new ShootPayload() {
+                tick = NetworkManager.instance.timeManager.currentTick,
+                origine = ray.origin,
+                direction = ray.direction,
+                time = NetworkManager.instance.timeManager.clientTime
+            };
+            ClientSend.PlayerShoot(shootPayload);
+            shotTime = 0;
         }
     }
 

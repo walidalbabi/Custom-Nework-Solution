@@ -125,6 +125,7 @@ namespace GameServer
             packetHandler = new Dictionary<int, PacketHandler>()
             {
                 {(int)ClientPackets.welcomeReceived, ServerHandle.WelcomeReveived },
+                {(int)ClientPackets.ping, ServerHandle.PingRecieved },
                 {(int)ClientPackets.inputs, ServerHandle.HandleInputs },
                 {(int)ClientPackets.rotation, ServerHandle.PlayerRotation },
                 {(int)ClientPackets.playerShoot, ServerHandle.PlayerShoot },

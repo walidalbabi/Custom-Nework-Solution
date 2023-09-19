@@ -5,7 +5,7 @@ using UnityEngine;
 public class CameraController : MonoBehaviour
 {
 
-    public NetworkedClient player;
+    public Transform player;
     public float sensitivity = 100f;
     public float clampAngle = 65f;
 

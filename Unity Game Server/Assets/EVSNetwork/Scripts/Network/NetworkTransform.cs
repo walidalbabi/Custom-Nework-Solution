@@ -13,13 +13,14 @@ public class NetworkTransform : NetworkBehaviour
 {
     [SerializeField] private SyncType _syncType;
 
-    [Tooltip("This is used to specify how many ticks should be passed before we send the data")]
-    [SerializeField][Min(1)] private int sendInterval = 1;  // Send every 3 ticks
+    private PlayerSnapshotData _currentTickSnapshot = new PlayerSnapshotData();
 
     protected override void Awake()
     {
         base.Awake();
         TimeManager.OnTick += OnTick;
+
+        _currentTickSnapshot.playerID = id;
     }
     protected override void OnDestroy()
     {
@@ -33,24 +34,26 @@ public class NetworkTransform : NetworkBehaviour
 
     private void OnTick(int tick)
     {
-        if (tick % sendInterval == 0)
-            Sync();
+        Sync(tick);
     }
 
-    private void Sync()
+    private void Sync(int tick)
     {
+
         if (_syncType == SyncType.SyncTransform)
         {
-            GameServer.ServerSend.ObjectPosition(_networkObject);
-            GameServer.ServerSend.ObjectRotation(_networkObject);
+            _currentTickSnapshot.position = transform.position;
+            _currentTickSnapshot.rotation = transform.rotation;
         }
         else if (_syncType == SyncType.SyncPosition)
         {
-            GameServer.ServerSend.ObjectPosition(_networkObject);
+            _currentTickSnapshot.position = transform.position;
         }
         else if (_syncType == SyncType.SyncRotatiom)
         {
-            GameServer.ServerSend.ObjectRotation(_networkObject);
+            _currentTickSnapshot.rotation = transform.rotation;
         }
+
+        NetworkManager.instance.AddSnapshot(_currentTickSnapshot, tick, _currentTickSnapshot.playerID);
     }
 }

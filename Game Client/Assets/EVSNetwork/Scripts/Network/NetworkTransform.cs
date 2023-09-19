@@ -27,92 +27,123 @@ public struct RotationData
     }
 }
 
+[System.Serializable]
+public struct PlayerSnapshot
+{
+    public int tick;
+    public Vector3 position;
+    public Quaternion rotation;
+
+    public void Init(int tick, Vector3 position, Quaternion rotation)
+    {
+        this.tick = tick;
+        this.position = position;
+        this.rotation = rotation;
+    }
+}
+
 
 [RequireComponent(typeof(NetworkedObject))]
 public class NetworkTransform : NetworkBehaviour
 {
-    [SerializeField] private float _interpolationSpeed = 2f;
 
-    private PositionData _lastServerPositionalData;
-    private PositionData _lastProccessedPositionalData;
+    private float ViewInterpolationDelayTicks =  0.1f; // 100 milliseconds
+    private float ExtrapolationLimitTicks = 0.25f; // 250 milliseconds
 
-    private RotationData _lastServerRotationalData;
-    private RotationData _lastProccessedRotationalData;
+    private Queue<PlayerSnapshot> snapshotQueue = new Queue<PlayerSnapshot>();
+    private int lastSnapshotTick = -1;
 
-    private float _currentLerpTime = 0f;
-    private Vector3 _newPosition;
-    private Quaternion _newRotation;
+    private TimeManager timeManager;
 
+    [SerializeField] PlayerSnapshot previousSnapshot;
+    [SerializeField] PlayerSnapshot nextSnapshot;
+    private bool isMoving = false;
 
     protected override void Awake()
     {
         base.Awake();
-        TimeManager.OnTick += OnTick;
     }
     protected override void OnDestroy()
     {
         base.OnDestroy();
-        TimeManager.OnTick -= OnTick;
     }
+    private void Start()
+    {
+        timeManager = NetworkManager.instance.timeManager;
+
+        ViewInterpolationDelayTicks *= TimeManager.TICK_RATE;
+        ExtrapolationLimitTicks *= TimeManager.TICK_RATE;
+    }
+
     protected override void OnNewObjectAdded(object obj)
     {
-        if (obj.GetType() == typeof(PositionData))
+
+        if (obj.GetType() == typeof(PlayerSnapshot))
         {
-            int tick = (int)obj.GetType().GetField("tick").GetValue(obj);
+            PlayerSnapshot snap = (PlayerSnapshot)obj;
 
-            if (tick <= _lastProccessedPositionalData.tick) return;
-
-            _lastServerPositionalData = (PositionData)obj;
-
-            // Reset the interpolation time whenever new data arrives
-            _currentLerpTime = 0f;
-        }
-        else if (obj.GetType() == typeof(RotationData))
-        {
-            int tick = (int)obj.GetType().GetField("tick").GetValue(obj);
-
-            if (tick <= _lastProccessedRotationalData.tick) return;
-
-            _lastServerRotationalData = (RotationData)obj;
-
-            // Reset the interpolation time whenever new data arrives
-            _currentLerpTime = 0f;
+            ReceiveSnapshot(snap);
         }
 
-    }
-
-    private void OnTick(int tick)
-    {
-        //_currentLerpTime += NetworkManager.instance.timeManager.deltaTick * _interpolationSpeed;
-
-        //// Clamp the value to make sure it's between 0 and 1
-        //_currentLerpTime = Mathf.Clamp(_currentLerpTime, 0f, 1f);
-
-        //Interpolate();
     }
 
     private void Update()
     {
-        _currentLerpTime += Time.deltaTime * _interpolationSpeed;
+        if (!isMoving) return;
 
-        // Clamp the value to make sure it's between 0 and 1
-        _currentLerpTime = Mathf.Clamp(_currentLerpTime, 0f, 1f);
+        int currentTick = timeManager.currentTick - (int)ViewInterpolationDelayTicks;
 
-        Interpolate();
+        // Ensure we're not interpolating between the same snapshot
+        if (previousSnapshot.tick == nextSnapshot.tick)
+            return;
+
+        float lerpFactor = (float)(currentTick - previousSnapshot.tick) / (nextSnapshot.tick - previousSnapshot.tick);
+        lerpFactor = Mathf.Clamp01(lerpFactor);
+
+        transform.position = Vector3.Lerp(previousSnapshot.position, nextSnapshot.position, lerpFactor);
+        transform.rotation = Quaternion.Slerp(previousSnapshot.rotation, nextSnapshot.rotation, lerpFactor);
+
+        if (Vector3.Distance(transform.position, nextSnapshot.position) < 0.01f)
+        {
+            transform.position = nextSnapshot.position;
+            transform.rotation = nextSnapshot.rotation;
+            NextTarget();
+        }
+
+
     }
 
-    private void Interpolate()
+    private void NextTarget()
     {
-        if (!_lastServerPositionalData.Equals(_lastProccessedPositionalData))
+        if (snapshotQueue.Count > 0)
         {
-            _newPosition = Vector3.Lerp(transform.position, _lastServerPositionalData.position, _currentLerpTime);
-            transform.position = _newPosition;
+            previousSnapshot = nextSnapshot;
+            nextSnapshot = snapshotQueue.Dequeue();
+            isMoving = true;
         }
+        else
+        {
+            isMoving = false;
+        }
+    }
 
-        if (!_lastServerRotationalData.Equals(_lastProccessedRotationalData))
-        {
-            _newRotation = Quaternion.Lerp(transform.rotation, _lastServerRotationalData.rotation, _currentLerpTime);
-            transform.rotation = _newRotation;
-        }
+    public void ReceiveSnapshot(PlayerSnapshot newSnapshot)
+    {
+        // Make sure you're not adding out-of-order snapshots
+        if (lastSnapshotTick >= newSnapshot.tick)
+            return;
+
+        lastSnapshotTick = newSnapshot.tick;
+      
+        // Trim the oldest snapshot if there are too many
+        while (snapshotQueue.Count >= 3)
+            snapshotQueue.Dequeue();
+
+        snapshotQueue.Enqueue(newSnapshot);
+
+        if (!isMoving)
+            NextTarget();
     }
 }
+
+

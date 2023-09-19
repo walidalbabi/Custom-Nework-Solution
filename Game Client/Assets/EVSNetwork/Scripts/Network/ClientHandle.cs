@@ -10,6 +10,7 @@ public class ClientHandle : MonoBehaviour
     public static void Welcome(Packet packet)
     {
         int tick = packet.ReadInt();
+        float serverTime = packet.ReadFloat();
         string msg = packet.ReadString();
         int id = packet.ReadInt();
 
@@ -18,8 +19,15 @@ public class ClientHandle : MonoBehaviour
         Client.instance.myID = id;
         ClientSend.WelcomeRecieved();
         NetworkManager.instance.timeManager.SetTick(tick);
+        NetworkManager.instance.timeManager.SetClientTime(serverTime);
 
         Client.instance.udp.Connect(((IPEndPoint)Client.instance.tcp.socket.Client.LocalEndPoint).Port);
+    }
+    public static void PongRecieved(Packet packet)
+    {
+        float time = packet.ReadFloat();
+
+        NetworkManager.instance.timeManager.SetPing(time);
     }
     public static void SpawnPlayer(Packet packet)
     {
@@ -47,7 +55,7 @@ public class ClientHandle : MonoBehaviour
         var obj = new StatePayload();
         obj.tick = tick;
         obj.position = position;
-        obj.velovity = velocity;
+        obj.velocity = velocity;
 
 
         NetworkManager.players[id].SendAction(obj, type);
@@ -74,6 +82,42 @@ public class ClientHandle : MonoBehaviour
 
         NetworkManager.networkObjects[id].SendAction(data, typeof(NetworkTransform));
     }
+    public static void WorldSnapsots(Packet packet)
+    {
+        Snapshots snapshot = new Snapshots();
+        snapshot.tick = packet.ReadInt();
+        snapshot.data = new List<PlayerSnapshostDataList>();
+
+        int dataLength = packet.ReadInt();
+
+        for (int i = 0; i < dataLength; i++)
+        {
+            int playerId = packet.ReadInt();
+            Vector3 position = packet.ReadVector3();
+            Quaternion rotation = packet.ReadQuaternion();
+
+            if (playerId != Client.instance.myID)
+            {
+                snapshot.data.Add(new PlayerSnapshostDataList
+                {
+                    playerID = playerId,
+                    position = position,
+                    rotation = rotation
+                });
+            }
+        }
+
+        foreach (var playerData in snapshot.data)
+        {
+            PlayerSnapshot data = new PlayerSnapshot()
+            {
+                tick = snapshot.tick,
+                position = playerData.position,
+                rotation = playerData.rotation,
+            };
+            NetworkManager.networkObjects[playerData.playerID].SendAction(data, typeof(NetworkTransform));
+        }
+    }
     public static void PlayerDisconnect(Packet packet)
     {
         int id = packet.ReadInt();
@@ -81,17 +125,21 @@ public class ClientHandle : MonoBehaviour
         Destroy(NetworkManager.players[id].gameObject);
         NetworkManager.players.Remove(id);
     }
-    public static void PlayerHealth(Packet packet)
+    public static void EntityHealth(Packet packet)
     {
         int id = packet.ReadInt();
+        string typeName = packet.ReadString();
+        Debug.Log(typeName);
+        Type type = Type.GetType(typeName);
         float health = packet.ReadFloat();
 
-     //   GameManager.players[id].SetHealth(health);
+        NetworkManager.networkObjects[id].SendAction(health, type);
     }
-    public static void PlayerSpawned(Packet packet)
+    public static void EntitySpawned(Packet packet)
     {
         int id = packet.ReadInt();
+        Type type = Type.GetType(packet.ReadString());
 
-      //  GameManager.players[id].Respawned();
+        NetworkManager.networkObjects[id].SendAction("Respawn", type);
     }
 }

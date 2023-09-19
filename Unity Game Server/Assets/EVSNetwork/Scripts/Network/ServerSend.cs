@@ -61,11 +61,22 @@ namespace GameServer
         {
             using(Packet packet = new Packet((int)ServerPackets.welcome))
             {
-                packet.Write(NetworkManager.instance.timeManager.GetTick());
+                packet.Write(NetworkManager.instance.timeManager.currentTick);
+                packet.Write(NetworkManager.instance.timeManager.clientTime);
                 packet.Write(message);
                 packet.Write(clientID);
 
                 SendTCPData(clientID, packet);
+            }
+        }
+
+        public static void SendPong(int clientID, float timeOfClient)
+        {
+            using (Packet packet = new Packet((int)ServerPackets.ping))
+            {
+                packet.Write(timeOfClient);
+
+                SendUDPData(clientID, packet);
             }
         }
         public static void SendServerTick(int tick)
@@ -108,7 +119,7 @@ namespace GameServer
             {
                 packet.Write(networkedObject.id);
                 packet.Write(networkedObject.transform.position);
-                packet.Write(NetworkManager.instance.timeManager.GetTick());
+                packet.Write(NetworkManager.instance.timeManager.currentTick);
 
                 SendUDPDataToAll(networkedObject.id,packet);
             }
@@ -119,9 +130,26 @@ namespace GameServer
             {
                 packet.Write(networkedObject.id);
                 packet.Write(networkedObject.transform.rotation);
-                packet.Write(NetworkManager.instance.timeManager.GetTick());
+                packet.Write(NetworkManager.instance.timeManager.currentTick);
 
                 SendUDPDataToAll(networkedObject.id, packet);
+            }
+        }
+        public static void WorldSnapshot(Snapshots snapshotData)
+        {
+            using (Packet packet = new Packet((int)ServerPackets.worldSnapshots))
+            {
+                packet.Write(snapshotData.tick);
+                packet.Write(snapshotData.data.Count);
+                foreach (var data in snapshotData.data.Values)
+                {
+                    packet.Write(data.playerID);
+                    packet.Write(data.position);
+                    packet.Write(data.rotation);
+                }
+
+
+                SendUDPDataToAll(packet);
             }
         }
         public static void PlayerDisconnect(int playerID)
@@ -139,28 +167,30 @@ namespace GameServer
                 packet.Write(type.AssemblyQualifiedName);
                 packet.Write(payload.tick);
                 packet.Write(payload.position);
-                packet.Write(payload.velovity);
+                packet.Write(payload.velocity);
 
                 SendUDPData(playerID, packet);
             }
         }
-        public static void PlayerHealth(PlayerController player)
+        public static void EntityHealth(EntityHealth health, Type type)
         {
-            using (Packet packet = new Packet((int)ServerPackets.playerHealth))
+            using (Packet packet = new Packet((int)ServerPackets.entityHealth))
             {
-        //        packet.Write(player.ID);
-        //        packet.Write(player.health);
+                packet.Write(health.ID);
+                packet.Write(type.AssemblyQualifiedName);
+                packet.Write(health.health);
 
                 SendTCPDataToAll(packet);
             }
         }
-        public static void playerRespawned(PlayerController player)
+        public static void EntityRespawned(EntityHealth health, Type type)
         {
-            using (Packet packet = new Packet((int)ServerPackets.playerRespawned))
+            using (Packet packet = new Packet((int)ServerPackets.entityRespawned))
             {
-          //      packet.Write(player.ID);
-
-        //        SendTCPDataToAll(packet);
+                packet.Write(health.ID);
+                packet.Write(type.AssemblyQualifiedName);
+ 
+                SendTCPDataToAll(packet);
             }
         }
         #endregion Send Functions
